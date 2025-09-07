@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict, List
+from typing import Callable, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -120,7 +120,7 @@ def _deterministic_llm_stub(prompt: str) -> Dict[str, Dict[str, Dict[str, object
     }
 
 
-def run_audit(audit_input: AuditInput) -> AuditOutput:
+def run_audit(audit_input: AuditInput, llm_provider: Optional[Callable[[str], Dict]] = None) -> AuditOutput:
     # ZTP pre-check on raw transcript
     ztp = check_ztp(audit_input.conversation)
 
@@ -140,8 +140,14 @@ def run_audit(audit_input: AuditInput) -> AuditOutput:
     context_json = json.dumps(context, ensure_ascii=False)
     _ = _render_prompt(context_json=context_json, transcript=redacted_transcript)
 
-    # Stub LLM call
+    # LLM call (OpenAI JSON-mode if provider supplied, else deterministic stub)
     llm_json = _deterministic_llm_stub(_)
+    if llm_provider is not None:
+        try:
+            llm_json = llm_provider(_)
+        except Exception:
+            # If provider fails, fall back to stub to ensure fail-open behavior
+            llm_json = _deterministic_llm_stub(_)
 
     # Compute weighted scores
     section_scores: Dict[str, float] = {}
